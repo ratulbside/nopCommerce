@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Xml;
+using System.Xml.Linq;
 using Nop.Core.Domain.Catalog;
 
 namespace Nop.Services.Catalog
@@ -436,7 +437,14 @@ namespace Nop.Services.Catalog
             if (product == null)
                 throw new ArgumentNullException("product");
 
-            var allProductAttributMappings = _productAttributeService.GetProductAttributeMappingsByProductId(product.Id);
+            var allProductAttributMappings = _productAttributeService.GetProductAttributeMappingsByProductId(product.Id).ToList();
+
+            var combinationFilter = allProductAttributMappings.Where(p => !string.IsNullOrEmpty(p.ConditionAttributeXml))
+                    .Select(p => new { p.Id, p.ConditionAttributeXml}).ToList();
+
+            const string elName = "ProductAttribute";
+            const string elId = "ID";
+
             if (ignoreNonCombinableAttributes)
             {
                 allProductAttributMappings = allProductAttributMappings.Where(x => !x.IsNonCombinable()).ToList();
@@ -468,7 +476,6 @@ namespace Nop.Services.Catalog
                     var attributeValues = _productAttributeService.GetProductAttributeValues(pam.Id);
                     if (attributeValues.Count == 0)
                         continue;
-
                     //checkboxes could have several values ticked
                     var allPossibleCheckboxCombinations = new List<List<ProductAttributeValue>>();
                     if (pam.AttributeControlType == AttributeControlType.Checkboxes ||
@@ -561,6 +568,22 @@ namespace Nop.Services.Catalog
                 }
                 allAttributesXml.AddRange(attributesXml);
             }
+
+
+            var filterAttributesXml = new List<string>();
+            foreach (var filter in combinationFilter)
+            {
+                var filterId = String.Format("{0}=\"{1}\"", elId, filter.Id);
+                var filterText = XElement.Parse(filter.ConditionAttributeXml)
+                    .Element(elName).ToString()
+                    .Replace("\r\n", "")
+                    .Replace(" ", "")
+                    .Replace(String.Format("{0}{1}", elName, elId), String.Format("{0} {1}", elName, elId));
+
+                filterAttributesXml.AddRange(allAttributesXml.Where(p=>p.Contains(filterId) && !p.Contains(filterText)));
+            }
+
+            allAttributesXml = allAttributesXml.Where(p => !filterAttributesXml.Contains(p)).ToList();
 
             return allAttributesXml;
         }
